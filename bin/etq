@@ -1,0 +1,62 @@
+#!/usr/bin/env escript
+
+parse_query([]) ->
+    [[]];
+parse_query([Arg]) ->
+    {ok, Tokens, _} = erl_scan:string(Arg),
+    [O1|O] = lists:foldl(fun({'.', 1}, [O1|O]) -> [[], lists:reverse([{dot, 1}|O1])|O];
+                            (T, [O1|O]) -> [[T|O1]|O]
+                         end,
+                         [[]],
+                         Tokens),
+    Queries = lists:reverse([lists:reverse([{dot, 1}|O1])|O]),
+    [case erl_parse:parse_term(Q) of
+         {ok, T} -> T;
+         {error, E} -> err(flat(E))
+     end || Q <- Queries].
+
+flat(T) ->
+    lists:flatten(io_lib:format("~p", [T])).
+
+err({1,erl_parse,Err}) ->
+    err(lists:flatten(Err));
+err(Err) ->
+    io:fwrite(standard_error,"~s~n", [Err]),
+    halt(1).
+
+run_query(Query, Term) when is_integer(Query), is_list(Term) ->
+    case 0 < Query andalso Query =< length(Term) of
+        true -> lists:nth(Query, Term);
+        false -> err([integer_to_list(Query), ": index out of bounds"])
+    end;
+run_query(Query, Term) when is_integer(Query), is_tuple(Term) ->
+    case 0 < Query andalso Query =< tuple_size(Term) of
+        true -> element(Query, Term);
+        false -> err([integer_to_list(Query), ": index out of bounds"])
+    end;
+run_query(Query, Term) when is_map(Term)->
+    try maps:get(Query, Term)
+    catch _:_ -> err([flat(Query), ": bad key"])
+    end.
+
+read_loop(Query) ->
+    case io:get_line('') of
+        eof -> halt(0);
+        {error, E} -> err(flat(E));
+        Str ->
+            case erl_scan:string(Str) of
+                {ok, Tokens, _} ->
+                    case erl_parse:parse_term(Tokens++[{dot,1}]) of
+                        {ok, Term} ->
+                            R = lists:foldl(fun(Q, T) -> run_query(Q, T)end, Term, Query),
+                            io:fwrite("~p~n", [R]);
+                        {error, E} ->
+                            err(flat(E))
+                    end;
+                {error, E, _} -> err(flat(E))
+            end,
+            read_loop(Query)
+    end.
+
+main(Args) ->
+    read_loop(parse_query(Args)).
