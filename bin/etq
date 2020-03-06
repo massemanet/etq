@@ -1,14 +1,19 @@
 #!/usr/bin/env escript
 
+pq({'.', 1}, [O1|O]) ->
+    [[], lists:reverse([{dot, 1}|O1])|O];
+pq({float, 1, F}, [O1|O]) ->
+    I1 = trunc(F),
+    I2 = round(10*(F-I1)),
+    [[{integer, 1, I2}], lists:reverse([{dot, 1},{integer, 1, I1}|O1])|O];
+pq(T, [O1|O]) ->
+    [[T|O1]|O].
+
 parse_query([]) ->
     [[]];
 parse_query([Arg]) ->
     {ok, Tokens, _} = erl_scan:string(Arg),
-    [O1|O] = lists:foldl(fun({'.', 1}, [O1|O]) -> [[], lists:reverse([{dot, 1}|O1])|O];
-                            (T, [O1|O]) -> [[T|O1]|O]
-                         end,
-                         [[]],
-                         Tokens),
+    [O1|O] = lists:foldl(fun(T, O) -> pq(T, O) end, [[]], Tokens),
     Queries = lists:reverse([lists:reverse([{dot, 1}|O1])|O]),
     [case erl_parse:parse_term(Q) of
          {ok, T} -> T;
@@ -18,12 +23,14 @@ parse_query([Arg]) ->
 flat(T) ->
     lists:flatten(io_lib:format("~p", [T])).
 
-err({1,erl_parse,Err}) ->
+err({1, erl_parse, Err}) ->
     err(lists:flatten(Err));
 err(Err) ->
-    io:fwrite(standard_error,"~s~n", [Err]),
+    io:fwrite(standard_error, "~s~n", [Err]),
     halt(1).
 
+run_query([], Term) ->
+    Term;
 run_query(Query, Term) when is_integer(Query), is_list(Term) ->
     case 0 < Query andalso Query =< length(Term) of
         true -> lists:nth(Query, Term);
@@ -46,9 +53,9 @@ read_loop(Query) ->
         Str ->
             case erl_scan:string(Str) of
                 {ok, Tokens, _} ->
-                    case erl_parse:parse_term(Tokens++[{dot,1}]) of
+                    case erl_parse:parse_term(Tokens++[{dot, 1}]) of
                         {ok, Term} ->
-                            R = lists:foldl(fun(Q, T) -> run_query(Q, T)end, Term, Query),
+                            R = lists:foldl(fun(Q, T) -> run_query(Q, T) end, Term, Query),
                             io:fwrite("~p~n", [R]);
                         {error, E} ->
                             err(flat(E))
